@@ -298,6 +298,38 @@ func readHexNumber(src io.RuneScanner) LexToken {
 	}
 }
 
+func readDecimalNumber(firstDigit rune, src io.RuneScanner) LexToken {
+	var (
+		str    strings.Builder
+		n1, n2 uint64
+	)
+
+	str.WriteRune(firstDigit)
+	n1 = uint64(firstDigit)
+
+	for {
+		r := nextRune(src)
+
+		switch {
+		case (r >= '0') && (r <= '9'):
+			str.WriteRune(r)
+			n2 = n1*10 + uint64(r-'0')
+			if n2 < n1 {
+				panic(fmt.Errorf(errIntTooLargeMsg, str))
+			}
+			n1 = n2
+
+		case r == '_': // separator, ignore it as far as the value goes
+			str.WriteRune(r)
+
+		default:
+			// first char of next token
+			src.UnreadRune()
+			return LexToken{IntNumber, str.String(), n1}
+		}
+	}
+}
+
 // Lex lexes the next token in the given RuneScanner.
 // Some tokens are negatively identified by stopping at a character that is not part of the token,
 // so the RuneScanner is used to be able to unread a single rune as the first char of the next token.
@@ -330,21 +362,23 @@ func Lex(src io.RuneScanner) LexToken {
 		// colour, needs 6 hex digits
 		var str strings.Builder
 		str.WriteRune('#')
+		var v uint64
 		for i := 0; i < 6; i++ {
 			c, haveIt := hexVal(nextRune(src))
-			str.WriteRune(rune(c))
 			if !haveIt {
 				panic(fmt.Errorf(errInvalidColourMsg, str))
 			}
+			str.WriteRune(rune(c))
+			v = v*16 + c
 		}
-		return LexToken{Colour, str.String(), 0}
+		return LexToken{Colour, str.String(), v}
 
 	case r == '%':
 		// Could be % or %=
 		switch r = nextRune(src); r {
 		case '=': // %=
 			return cAssignModulus
-		default: // /
+		default: // %
 			src.UnreadRune()
 			return cPercent
 		}
@@ -440,7 +474,20 @@ func Lex(src io.RuneScanner) LexToken {
 			return readHexNumber(src)
 
 		case (r >= '0') && (r <= '9'): // decimal with leading 0
+			return readDecimalNumber(r, src)
 		}
+
+	case ((r >= 'A') && (r <= 'Z')) || ((r >= 'a') && (r <= 'z')):
+		var str strings.Builder
+		str.WriteRune(r)
+		for {
+			if r = nextRune(src); ((r >= 'A') && (r <= 'Z')) || ((r >= 'a') && (r <= 'z')) || ((r >= '0') && (r <= '9')) || (r == '_') {
+				str.WriteRune(r)
+			} else {
+				break
+			}
+		}
+		return LexToken{Name, str.String(), 0}
 	}
 
 	return cUndefined
