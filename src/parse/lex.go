@@ -87,7 +87,7 @@ var (
 // LexToken describes a single token, as a TokenType and a string of characters
 type LexToken struct {
 	TokenType
-	Token string
+	Token    string
 	IntValue uint64
 }
 
@@ -126,7 +126,7 @@ func hexVal(r rune) (uint64, bool) {
 func unicodeHex(prefix string, src io.RuneScanner) rune {
 	var (
 		res   uint64
-		r rune
+		r     rune
 		chars = prefix
 	)
 
@@ -212,7 +212,7 @@ func escapedChar(src io.RuneScanner) (rune, bool) {
 
 // Helper function to read a single quoted string
 // Single quoted strings end with an unescaped single quote, and can have escaped or embedded newlines
-func readString(src io.RuneScanner) string {
+func readString(src io.RuneScanner) LexToken {
 	var str strings.Builder
 
 	for {
@@ -223,7 +223,7 @@ func readString(src io.RuneScanner) string {
 		case '\'':
 			if !escaped {
 				// Complete single line string
-				return str.String()
+				return LexToken{Str, str.String(), 0}
 			}
 		case 0:
 			panic(errUnexpectedEOF)
@@ -235,59 +235,65 @@ func readString(src io.RuneScanner) string {
 
 func readBinaryNumber(src io.RuneScanner) LexToken {
 	var (
-		chars = "0b"
-		n1,n2 uint64
+		str    strings.Builder
+		n1, n2 uint64
 	)
-	
+
+	str.WriteRune('0')
+	str.WriteRune('b')
+
 	for {
 		r := nextRune(src)
-		
+
 		switch {
 		case (r == '0') || (r == '1'):
-			chars += string(r)
-			n2 = n1 * 2 + uint64(r - '0')
+			str.WriteRune(r)
+			n2 = n1*2 + uint64(r-'0')
 			if n2 < n1 {
-				panic(fmt.Errorf(errIntTooLargeMsg, chars))
+				panic(fmt.Errorf(errIntTooLargeMsg, str))
 			}
 			n1 = n2
-		
+
 		case r == '_': // separator, ignore it as far as the value goes
-			chars += string(r)
-		
+			str.WriteRune(r)
+
 		default:
 			// first char of next token
 			src.UnreadRune()
-			return LexToken{IntNumber, chars, n1}
+			return LexToken{IntNumber, str.String(), n1}
 		}
 	}
 }
 
 func readHexNumber(src io.RuneScanner) LexToken {
 	var (
-		chars = "0x"
-		n1,n2 uint64
+		str    strings.Builder
+		n1, n2 uint64
 	)
-	
+
+	str.WriteRune('0')
+	str.WriteRune('x')
+
 	for {
 		r := nextRune(src)
 		i, haveIt := hexVal(r)
-		
+
 		switch {
 		case haveIt:
-			chars += string(i)
-			n2 = n1 * 16 + i
+			str.WriteRune(rune(i))
+			n2 = n1*16 + i
 			if n2 < n1 {
-				panic(fmt.Errorf(errIntTooLargeMsg, chars))
+				panic(fmt.Errorf(errIntTooLargeMsg, str))
 			}
 			n1 = n2
-		
+
 		case r == '_': // separator, ignore it as far as the value goes
-			chars += string(r)
-		
+			str.WriteRune(r)
+
 		default:
 			// first char of next token
 			src.UnreadRune()
-			return LexToken{IntNumber, chars, n1}
+			return LexToken{IntNumber, str.String(), n1}
 		}
 	}
 }
@@ -322,15 +328,16 @@ func Lex(src io.RuneScanner) LexToken {
 
 	case r == '#':
 		// colour, needs 6 hex digits
-		chars := "#"
+		var str strings.Builder
+		str.WriteRune('#')
 		for i := 0; i < 6; i++ {
 			c, haveIt := hexVal(nextRune(src))
-			chars += string(c)
+			str.WriteRune(rune(c))
 			if !haveIt {
-				panic(fmt.Errorf(errInvalidColourMsg, chars))
+				panic(fmt.Errorf(errInvalidColourMsg, str))
 			}
 		}
-		return LexToken{Colour, chars}
+		return LexToken{Colour, str.String(), 0}
 
 	case r == '%':
 		// Could be % or %=
@@ -344,7 +351,7 @@ func Lex(src io.RuneScanner) LexToken {
 
 	case r == '\'':
 		// string, read all until next unescaped ", interpreting escapes, and allowing embedded newlines
-		return LexToken{Str, readString(src)}
+		return readString(src)
 
 	case r == '(':
 		return cOParens
@@ -422,17 +429,17 @@ func Lex(src io.RuneScanner) LexToken {
 
 	case r == '}':
 		return cCBrace
-		
+
 	case r == '0':
 		r = nextRune(src)
 		switch {
-			case r == 'b': // binary number, read all 0, 1, and _
-				return LexToken{BinaryNumber, readBinaryNumber(src)}
-			
-			case r == 'x': // hex number, read all hex and _
-				return LexToken{HexNumber, readHexNumber(src)}
-			
-			case (r >= '0') && (r <= '9'): // decimal with leading 0
+		case r == 'b': // binary number, read all 0, 1, and _
+			return readBinaryNumber(src)
+
+		case r == 'x': // hex number, read all hex and _
+			return readHexNumber(src)
+
+		case (r >= '0') && (r <= '9'): // decimal with leading 0
 		}
 	}
 
