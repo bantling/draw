@@ -6,13 +6,14 @@ package parse
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
 var (
 	errInvalidUnicodeEscapeMsg = "Invalid unicode escape string %s: must be \\uXXXX, \\uXXXXXX, \\U+XXXX, or \\U+XXXXXX"
 	errInvalidColourMsg        = "Invalid colour %s: there must be six hex characters after the #"
-	errIntTooLargeMsg          = "Invalid number %s: it is too large to fit into a 64 bit integer"
+	errIncompleteFloatMsg      = "Incomplete float number %s: a float cannot end with a ., e, or E"
 	errUnexpectedEOF           = fmt.Errorf("Unexpected EOF")
 )
 
@@ -56,39 +57,79 @@ const (
 
 // Constants for tokens that are always the same sequence of runes
 var (
-	cEol            = LexToken{Eol, "\n", 0}
-	cPercent        = LexToken{Percent, "%", 0}
-	cAssignModulus  = LexToken{AssignModulus, "%=", 0}
-	cOParens        = LexToken{OParens, "(", 0}
-	cCParens        = LexToken{CParens, ")", 0}
-	cStar           = LexToken{Star, "*", 0}
-	cAssignMultiply = LexToken{AssignMultiply, "*=", 0}
-	cPlus           = LexToken{Plus, "+", 0}
-	cAssignAdd      = LexToken{AssignAdd, "+=", 0}
-	cIncrement      = LexToken{Increment, "++", 0}
-	cComma          = LexToken{Comma, ",", 0}
-	cMinus          = LexToken{Minus, "-", 0}
-	cAssignSubtract = LexToken{AssignSubtract, "-=", 0}
-	cDecrement      = LexToken{Decrement, "--", 0}
-	cSlash          = LexToken{Slash, "/", 0}
-	cAssignDivide   = LexToken{AssignDivide, "/=", 0}
-	cColon          = LexToken{Colon, ":", 0}
-	cLessThan       = LexToken{LessThan, "<", 0}
-	cEquals         = LexToken{Equals, "=", 0}
-	cGreaterThan    = LexToken{GreaterThan, ">", 0}
-	cOBracket       = LexToken{OBracket, "[", 0}
-	cCBracket       = LexToken{CBracket, "]", 0}
-	cOBrace         = LexToken{OBrace, "{", 0}
-	cCBrace         = LexToken{CBrace, "}", 0}
-	cEof            = LexToken{Eof, "", 0}
-	cUndefined      = LexToken{Undefined, "", 0}
+	cEol            = LexToken{Eol, "\n"}
+	cPercent        = LexToken{Percent, "%"}
+	cAssignModulus  = LexToken{AssignModulus, "%="}
+	cOParens        = LexToken{OParens, "("}
+	cCParens        = LexToken{CParens, ")"}
+	cStar           = LexToken{Star, "*"}
+	cAssignMultiply = LexToken{AssignMultiply, "*="}
+	cPlus           = LexToken{Plus, "+"}
+	cAssignAdd      = LexToken{AssignAdd, "+="}
+	cIncrement      = LexToken{Increment, "++"}
+	cComma          = LexToken{Comma, ","}
+	cMinus          = LexToken{Minus, "-"}
+	cAssignSubtract = LexToken{AssignSubtract, "-="}
+	cDecrement      = LexToken{Decrement, "--"}
+	cSlash          = LexToken{Slash, "/"}
+	cAssignDivide   = LexToken{AssignDivide, "/="}
+	cColon          = LexToken{Colon, ":"}
+	cLessThan       = LexToken{LessThan, "<"}
+	cEquals         = LexToken{Equals, "="}
+	cGreaterThan    = LexToken{GreaterThan, ">"}
+	cOBracket       = LexToken{OBracket, "["}
+	cCBracket       = LexToken{CBracket, "]"}
+	cOBrace         = LexToken{OBrace, "{"}
+	cCBrace         = LexToken{CBrace, "}"}
+	cEof            = LexToken{Eof, ""}
+	cUndefined      = LexToken{Undefined, ""}
 )
 
 // LexToken describes a single token, as a TokenType and a string of characters
 type LexToken struct {
 	TokenType
-	Token    string
-	IntValue uint64
+	Token string
+}
+
+// IntValue returns the integer value for Colour and IntNumber token types
+func (l LexToken) IntValue() uint64 {
+	// Remove any prefix thaat might be included in the token
+	var (
+		str  = l.Token
+		base = 10
+	)
+
+	switch {
+	case strings.HasPrefix(l.Token, "0b"):
+		str = str[2:]
+		base = 2
+
+	case strings.HasPrefix(l.Token, "0x"):
+		str = str[2:]
+		base = 16
+
+	case strings.HasPrefix(l.Token, "#"):
+		str = str[1:]
+		base = 16
+	}
+
+	// Convert to a uint64
+	val, err := strconv.ParseUint(str, base, 64)
+	if err != nil {
+		panic(err)
+	}
+
+	return val
+}
+
+func (l LexToken) FloatValue() float32 {
+	// No prefix, straightforward read of string
+	val, err := strconv.ParseFloat(l.Token, 32)
+	if err != nil {
+		panic(err)
+	}
+
+	return float32(val)
 }
 
 // nextRune returns the next rune from the input.
@@ -223,7 +264,7 @@ func readString(src io.RuneScanner) LexToken {
 		case '\'':
 			if !escaped {
 				// Complete single line string
-				return LexToken{Str, str.String(), 0}
+				return LexToken{Str, str.String()}
 			}
 		case 0:
 			panic(errUnexpectedEOF)
@@ -233,11 +274,9 @@ func readString(src io.RuneScanner) LexToken {
 	// All switch cases in above for loop return or panic, so this line can never be reached
 }
 
+// Helper function to read a binary number of 0, 1, and _
 func readBinaryNumber(src io.RuneScanner) LexToken {
-	var (
-		str    strings.Builder
-		n1, n2 uint64
-	)
+	var str strings.Builder
 
 	str.WriteRune('0')
 	str.WriteRune('b')
@@ -248,11 +287,6 @@ func readBinaryNumber(src io.RuneScanner) LexToken {
 		switch {
 		case (r == '0') || (r == '1'):
 			str.WriteRune(r)
-			n2 = n1*2 + uint64(r-'0')
-			if n2 < n1 {
-				panic(fmt.Errorf(errIntTooLargeMsg, str))
-			}
-			n1 = n2
 
 		case r == '_': // separator, ignore it as far as the value goes
 			str.WriteRune(r)
@@ -260,16 +294,14 @@ func readBinaryNumber(src io.RuneScanner) LexToken {
 		default:
 			// first char of next token
 			src.UnreadRune()
-			return LexToken{IntNumber, str.String(), n1}
+			return LexToken{IntNumber, str.String()}
 		}
 	}
 }
 
+// Helper function to read a hex number of hex digits and _
 func readHexNumber(src io.RuneScanner) LexToken {
-	var (
-		str    strings.Builder
-		n1, n2 uint64
-	)
+	var str strings.Builder
 
 	str.WriteRune('0')
 	str.WriteRune('x')
@@ -281,11 +313,6 @@ func readHexNumber(src io.RuneScanner) LexToken {
 		switch {
 		case haveIt:
 			str.WriteRune(rune(i))
-			n2 = n1*16 + i
-			if n2 < n1 {
-				panic(fmt.Errorf(errIntTooLargeMsg, str))
-			}
-			n1 = n2
 
 		case r == '_': // separator, ignore it as far as the value goes
 			str.WriteRune(r)
@@ -293,19 +320,17 @@ func readHexNumber(src io.RuneScanner) LexToken {
 		default:
 			// first char of next token
 			src.UnreadRune()
-			return LexToken{IntNumber, str.String(), n1}
+			return LexToken{IntNumber, str.String()}
 		}
 	}
 }
 
+// Helper function to read a decimal number, which may be an integer or float
+// the mantissa may have _
 func readDecimalNumber(firstDigit rune, src io.RuneScanner) LexToken {
-	var (
-		str    strings.Builder
-		n1, n2 uint64
-	)
+	var str strings.Builder
 
 	str.WriteRune(firstDigit)
-	n1 = uint64(firstDigit)
 
 	for {
 		r := nextRune(src)
@@ -313,19 +338,59 @@ func readDecimalNumber(firstDigit rune, src io.RuneScanner) LexToken {
 		switch {
 		case (r >= '0') && (r <= '9'):
 			str.WriteRune(r)
-			n2 = n1*10 + uint64(r-'0')
-			if n2 < n1 {
-				panic(fmt.Errorf(errIntTooLargeMsg, str))
-			}
-			n1 = n2
 
 		case r == '_': // separator, ignore it as far as the value goes
 			str.WriteRune(r)
 
+		case (r == '.') || (r == 'e') || (r == 'E'): // change to float mode
+			str.WriteRune(r)
+			return readFloatNumber(&str, r, src)
+
 		default:
 			// first char of next token
 			src.UnreadRune()
-			return LexToken{IntNumber, str.String(), n1}
+			return LexToken{IntNumber, str.String()}
+		}
+	}
+}
+
+// Helper function to read a float number
+// We started as a decimal number, then we hit a ., e, or E
+func readFloatNumber(str *strings.Builder, r rune, src io.RuneScanner) LexToken {
+	var (
+		isFractional = r == '.' // true for fractional, false for exponent
+		lastChar     = r
+	)
+
+	for {
+		r := nextRune(src)
+
+		switch {
+		case (r >= '0') && (r <= '9'):
+			str.WriteRune(r)
+			lastChar = r
+
+		case (r == 'e') || (r == 'E'):
+			if !isFractional {
+				// Already read exponent char before
+				src.UnreadRune()
+				return LexToken{FloatNumber, str.String()}
+			}
+
+			// enter exponent mode
+			str.WriteRune(r)
+			isFractional = false
+			lastChar = r
+
+		default:
+			// If last char is a ., e, or E then we have an incomplete float
+			if (lastChar == '.') || (lastChar == 'e') || (lastChar == 'E') {
+				panic(fmt.Errorf(errIncompleteFloatMsg, str))
+			}
+
+			// Otherwise, we read the next char after a float string
+			src.UnreadRune()
+			return LexToken{FloatNumber, str.String()}
 		}
 	}
 }
@@ -362,16 +427,15 @@ func Lex(src io.RuneScanner) LexToken {
 		// colour, needs 6 hex digits
 		var str strings.Builder
 		str.WriteRune('#')
-		var v uint64
 		for i := 0; i < 6; i++ {
-			c, haveIt := hexVal(nextRune(src))
+			r := nextRune(src)
+			str.WriteRune(r)
+			_, haveIt := hexVal(r)
 			if !haveIt {
 				panic(fmt.Errorf(errInvalidColourMsg, str))
 			}
-			str.WriteRune(rune(c))
-			v = v*16 + c
 		}
-		return LexToken{Colour, str.String(), v}
+		return LexToken{Colour, str.String()}
 
 	case r == '%':
 		// Could be % or %=
@@ -477,6 +541,9 @@ func Lex(src io.RuneScanner) LexToken {
 			return readDecimalNumber(r, src)
 		}
 
+	case (r >= '1') && (r <= '9'):
+		return readDecimalNumber(r, src)
+
 	case ((r >= 'A') && (r <= 'Z')) || ((r >= 'a') && (r <= 'z')):
 		var str strings.Builder
 		str.WriteRune(r)
@@ -487,7 +554,7 @@ func Lex(src io.RuneScanner) LexToken {
 				break
 			}
 		}
-		return LexToken{Name, str.String(), 0}
+		return LexToken{Name, str.String()}
 	}
 
 	return cUndefined
