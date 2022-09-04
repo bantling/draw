@@ -22,4 +22,5 @@ format:
 
 .PHONY: test
 test:
-	go test -v ./...
+	[ -n "$(run)" ] && r="-run $(run)"; \
+	go test -v ./... $$r

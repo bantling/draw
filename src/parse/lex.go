@@ -11,9 +11,12 @@ import (
 )
 
 var (
-	errInvalidUnicodeEscapeMsg = "Invalid unicode escape string %s: must be \\uXXXX, \\uXXXXXX, \\U+XXXX, or \\U+XXXXXX"
+	errInvalidUnicodeEscapeMsg = "Invalid unicode escape sequence %s: must be \\uXXXX, \\uXXXXXX, \\U+XXXX, or \\U+XXXXXX"
+	errInvalidEscapeMsg        = "Invalid escape sequence %s: must be \\\\, \\', \\n, \\uXXXX, \\uXXXXXX, \\U+XXXX, or \\U+XXXXXX"
 	errInvalidColourMsg        = "Invalid colour %s: there must be six hex characters after the #"
 	errIncompleteFloatMsg      = "Incomplete float number %s: a float cannot end with a ., e, or E"
+	errNameTooLongMsg          = "Name too long %q: a name can be a max of 16 chars"
+	errIllegalStringCharMsg    = "Illegal string %q: a string cannot ASCII control characters except for \r and \n"
 	errUnexpectedEOF           = fmt.Errorf("Unexpected EOF")
 )
 
@@ -116,7 +119,7 @@ func (l LexToken) IntValue() uint64 {
 	// Convert to a uint64
 	val, err := strconv.ParseUint(str, base, 64)
 	if err != nil {
-		panic(err)
+		panic(err.(*strconv.NumError).Err)
 	}
 
 	return val
@@ -126,7 +129,7 @@ func (l LexToken) FloatValue() float32 {
 	// No prefix, straightforward read of string
 	val, err := strconv.ParseFloat(l.Token, 32)
 	if err != nil {
-		panic(err)
+		panic(err.(*strconv.NumError).Err)
 	}
 
 	return float32(val)
@@ -245,6 +248,8 @@ func escapedChar(src io.RuneScanner) (rune, bool) {
 				panic(fmt.Errorf(errInvalidUnicodeEscapeMsg, "\\U"+string(r)))
 			}
 			return unicodeHex("\\U+", src), true
+		default:
+			panic(fmt.Errorf(errInvalidEscapeMsg, fmt.Sprintf("\\%s", string(r))))
 		}
 	}
 
@@ -255,15 +260,19 @@ func escapedChar(src io.RuneScanner) (rune, bool) {
 // Single quoted strings end with an unescaped single quote, and can have escaped or embedded newlines
 func readString(src io.RuneScanner) LexToken {
 	var str strings.Builder
+	str.WriteRune('\'')
 
 	for {
 		r, escaped := escapedChar(src)
 		str.WriteRune(r)
+		if (r < ' ') && ((r != '\r') && (r != '\n')) {
+			panic(fmt.Errorf(errIllegalStringCharMsg, str.String()))
+		}
 
 		switch r {
 		case '\'':
 			if !escaped {
-				// Complete single line string
+				// Complete string
 				return LexToken{Str, str.String()}
 			}
 		case 0:
@@ -553,6 +562,9 @@ func Lex(src io.RuneScanner) LexToken {
 			} else {
 				break
 			}
+		}
+		if str.Len() > 16 {
+			panic(fmt.Errorf(errNameTooLongMsg, str.String()))
 		}
 		return LexToken{Name, str.String()}
 	}

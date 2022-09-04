@@ -271,6 +271,11 @@ func TestCBrace(t *testing.T) {
 	assert.Equal(t, cEof, Lex(src))
 }
 
+func TestEof(t *testing.T) {
+	src := strings.NewReader("")
+	assert.Equal(t, cEof, Lex(src))
+}
+
 func TestUndefined(t *testing.T) {
 	src := strings.NewReader("~")
 	assert.Equal(t, cUndefined, Lex(src))
@@ -305,57 +310,67 @@ func TestFloatNumber(t *testing.T) {
 	assert.Equal(t, float32(12.34), tok.FloatValue())
 
 	src = strings.NewReader("12.34%")
-	assert.Equal(t, LexToken{FloatNumber, "12.34"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34"}, tok)
 	assert.Equal(t, cPercent, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34), tok.FloatValue())
 
 	src = strings.NewReader("12.34.")
-	assert.Equal(t, LexToken{FloatNumber, "12.34"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34"}, tok)
 	assert.Equal(t, cUndefined, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34), tok.FloatValue())
 
 	src = strings.NewReader("12e26")
-	assert.Equal(t, LexToken{FloatNumber, "12e26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12e26"}, tok)
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12e26), tok.FloatValue())
 
 	src = strings.NewReader("12E26")
-	assert.Equal(t, LexToken{FloatNumber, "12E26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12E26"}, tok)
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12e26), tok.FloatValue())
 
 	src = strings.NewReader("12e26%")
-	assert.Equal(t, LexToken{FloatNumber, "12e26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12e26"}, tok)
 	assert.Equal(t, cPercent, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12e26), tok.FloatValue())
 
 	src = strings.NewReader("12E26.")
-	assert.Equal(t, LexToken{FloatNumber, "12E26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12E26"}, tok)
 	assert.Equal(t, cUndefined, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12e26), tok.FloatValue())
 
 	src = strings.NewReader("12.34e26")
-	assert.Equal(t, LexToken{FloatNumber, "12.34e26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34e26"}, tok)
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34e26), tok.FloatValue())
 
 	src = strings.NewReader("12.34E26")
-	assert.Equal(t, LexToken{FloatNumber, "12.34E26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34E26"}, tok)
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34e26), tok.FloatValue())
 
 	src = strings.NewReader("12.34e26%")
-	assert.Equal(t, LexToken{FloatNumber, "12.34e26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34e26"}, tok)
 	assert.Equal(t, cPercent, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34e26), tok.FloatValue())
 
 	src = strings.NewReader("12.34E26.")
-	assert.Equal(t, LexToken{FloatNumber, "12.34E26"}, Lex(src))
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34E26"}, tok)
 	assert.Equal(t, cUndefined, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34e26), tok.FloatValue())
@@ -389,6 +404,16 @@ func TestFloatNumber(t *testing.T) {
 		Lex(src)
 		assert.Fail(t, "Must die")
 	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, strconv.ErrRange, recover())
+		}()
+
+		src = strings.NewReader("12e500")
+		Lex(src).FloatValue()
+		assert.Fail(t, "Must die")
+	}()
 }
 
 func TestIntNumber(t *testing.T) {
@@ -420,7 +445,7 @@ func TestIntNumber(t *testing.T) {
 
 	func() {
 		defer func() {
-			assert.Equal(t, strconv.ErrRange, recover().(*strconv.NumError).Err)
+			assert.Equal(t, strconv.ErrRange, recover())
 		}()
 
 		src = strings.NewReader("18446744073709551616")
@@ -433,7 +458,7 @@ func TestIntNumber(t *testing.T) {
 
 	func() {
 		defer func() {
-			assert.Equal(t, strconv.ErrRange, recover().(*strconv.NumError).Err)
+			assert.Equal(t, strconv.ErrRange, recover())
 		}()
 
 		src = strings.NewReader("18446744073709551616%")
@@ -446,7 +471,33 @@ func TestIntNumber(t *testing.T) {
 	}()
 }
 
-func TestEof(t *testing.T) {
-	src := strings.NewReader("")
-	assert.Equal(t, cEof, Lex(src))
+func TestName(t *testing.T) {
+	src := strings.NewReader("A1_")
+	assert.Equal(t, LexToken{Name, "A1_"}, Lex(src))
+	src = strings.NewReader("a1_")
+	assert.Equal(t, LexToken{Name, "a1_"}, Lex(src))
+
+	func() {
+		str := "abcdef1234567890_"
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errNameTooLongMsg, str), recover())
+		}()
+
+		Lex(strings.NewReader(str))
+		assert.Fail(t, "Must die")
+	}()
+}
+
+func TestStr(t *testing.T) {
+	src := strings.NewReader("'an example STRING \\\\ \\' \\n \\u0041 \\u010000 \\U+0061 \\U+010000'")
+	assert.Equal(t, LexToken{Str, "'an example STRING \\ ' \n A \U00010000 a \U00010000'"}, Lex(src))
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errInvalidEscapeMsg, "\\z"), recover())
+		}()
+
+		Lex(strings.NewReader("'\\z'"))
+		assert.Fail(t, "Must die")
+	}()
 }
