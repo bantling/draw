@@ -23,4 +23,8 @@ format:
 .PHONY: test
 test:
 	[ -n "$(run)" ] && r="-run $(run)"; \
-	go test -v ./... $$r
+	go test -coverprofile=coverage.html -v ./... $$r
+
+.PHONY: coverage
+coverage:
+	go tool cover -html=coverage.html

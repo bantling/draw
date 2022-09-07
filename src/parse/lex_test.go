@@ -300,6 +300,15 @@ func TestColour(t *testing.T) {
 	assert.Equal(t, cPercent, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, uint64(0x123456), tok.IntValue())
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errInvalidColourMsg, "#1 "), recover())
+		}()
+
+		Lex(strings.NewReader("#1 "))
+		assert.Fail(t, "Must die")
+	}()
 }
 
 func TestFloatNumber(t *testing.T) {
@@ -375,12 +384,39 @@ func TestFloatNumber(t *testing.T) {
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, float32(12.34e26), tok.FloatValue())
 
+	src = strings.NewReader("12.34E26e")
+	tok = Lex(src)
+	assert.Equal(t, LexToken{FloatNumber, "12.34E26"}, tok)
+	assert.Equal(t, LexToken{Name, "e"}, Lex(src))
+	assert.Equal(t, cEof, Lex(src))
+	assert.Equal(t, float32(12.34e26), tok.FloatValue())
+
 	func() {
 		defer func() {
 			assert.Equal(t, fmt.Errorf(errIncompleteFloatMsg, "12."), recover())
 		}()
 
 		src = strings.NewReader("12.")
+		Lex(src)
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errIncompleteFloatMsg, "12.-"), recover())
+		}()
+
+		src = strings.NewReader("12.-")
+		Lex(src)
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errIncompleteFloatMsg, "12.e"), recover())
+		}()
+
+		src = strings.NewReader("12.e")
 		Lex(src)
 		assert.Fail(t, "Must die")
 	}()
@@ -401,6 +437,26 @@ func TestFloatNumber(t *testing.T) {
 		}()
 
 		src = strings.NewReader("12E")
+		Lex(src)
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errIncompleteFloatMsg, "12e"), recover())
+		}()
+
+		src = strings.NewReader("12ee10")
+		Lex(src)
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errIncompleteFloatMsg, "12e-"), recover())
+		}()
+
+		src = strings.NewReader("12e-")
 		Lex(src)
 		assert.Fail(t, "Must die")
 	}()
@@ -430,9 +486,22 @@ func TestIntNumber(t *testing.T) {
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, uint64(12), tok.IntValue())
 
-	src = strings.NewReader("18446744073709551615")
+	src = strings.NewReader("01")
 	tok = Lex(src)
-	assert.Equal(t, LexToken{IntNumber, "18446744073709551615"}, tok)
+	assert.Equal(t, LexToken{IntNumber, "01"}, tok)
+	assert.Equal(t, cEof, Lex(src))
+	assert.Equal(t, uint64(1), tok.IntValue())
+
+	src = strings.NewReader("01%")
+	tok = Lex(src)
+	assert.Equal(t, LexToken{IntNumber, "01"}, tok)
+	assert.Equal(t, cPercent, Lex(src))
+	assert.Equal(t, cEof, Lex(src))
+	assert.Equal(t, uint64(1), tok.IntValue())
+
+	src = strings.NewReader("184_46744073709551615")
+	tok = Lex(src)
+	assert.Equal(t, LexToken{IntNumber, "184_46744073709551615"}, tok)
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, uint64(math.MaxUint64), tok.IntValue())
 
@@ -442,6 +511,18 @@ func TestIntNumber(t *testing.T) {
 	assert.Equal(t, cPercent, Lex(src))
 	assert.Equal(t, cEof, Lex(src))
 	assert.Equal(t, uint64(math.MaxUint64), tok.IntValue())
+
+	src = strings.NewReader("0b0110_1110")
+	tok = Lex(src)
+	assert.Equal(t, LexToken{IntNumber, "0b0110_1110"}, tok)
+	assert.Equal(t, cEof, Lex(src))
+	assert.Equal(t, uint64(0x6E), tok.IntValue())
+
+	src = strings.NewReader("0x1234_ABcd")
+	tok = Lex(src)
+	assert.Equal(t, LexToken{IntNumber, "0x1234_ABcd"}, tok)
+	assert.Equal(t, cEof, Lex(src))
+	assert.Equal(t, uint64(0x1234ABCD), tok.IntValue())
 
 	func() {
 		defer func() {
@@ -494,10 +575,55 @@ func TestStr(t *testing.T) {
 
 	func() {
 		defer func() {
+			assert.Equal(t, fmt.Errorf(errInvalidUnicodeEscapeMsg, "\\u0"), recover())
+		}()
+
+		Lex(strings.NewReader("'\\u0'"))
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errInvalidUnicodeEscapeMsg, "\\u12345"), recover())
+		}()
+
+		Lex(strings.NewReader("'\\u12345'"))
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errInvalidUnicodeEscapeMsg, "\\U'"), recover())
+		}()
+
+		Lex(strings.NewReader("'\\U'"))
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
 			assert.Equal(t, fmt.Errorf(errInvalidEscapeMsg, "\\z"), recover())
 		}()
 
 		Lex(strings.NewReader("'\\z'"))
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, fmt.Errorf(errIllegalStringCharMsg, "'\t"), recover())
+		}()
+
+		Lex(strings.NewReader("'\t'"))
+		assert.Fail(t, "Must die")
+	}()
+
+	func() {
+		defer func() {
+			assert.Equal(t, errUnexpectedEOF, recover())
+		}()
+
+		Lex(strings.NewReader("'"))
 		assert.Fail(t, "Must die")
 	}()
 }

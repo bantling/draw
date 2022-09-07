@@ -16,7 +16,7 @@ var (
 	errInvalidColourMsg        = "Invalid colour %s: there must be six hex characters after the #"
 	errIncompleteFloatMsg      = "Incomplete float number %s: a float cannot end with a ., e, or E"
 	errNameTooLongMsg          = "Name too long %q: a name can be a max of 16 chars"
-	errIllegalStringCharMsg    = "Illegal string %q: a string cannot ASCII control characters except for \r and \n"
+	errIllegalStringCharMsg    = "Illegal string %q: a string cannot contain ASCII control characters except for \r and \n"
 	errUnexpectedEOF           = fmt.Errorf("Unexpected EOF")
 )
 
@@ -116,6 +116,9 @@ func (l LexToken) IntValue() uint64 {
 		base = 16
 	}
 
+	// Replace all _ with empty string
+	str = strings.ReplaceAll(str, "_", "")
+
 	// Convert to a uint64
 	val, err := strconv.ParseUint(str, base, 64)
 	if err != nil {
@@ -177,18 +180,17 @@ func unicodeHex(prefix string, src io.RuneScanner) rune {
 	// Has to have at least 4 hex chars
 	for i := 0; i < 4; i++ {
 		r = nextRune(src)
-		chars += string(r)
 		v, haveIt := hexVal(r)
 		if !haveIt {
 			panic(fmt.Errorf(errInvalidUnicodeEscapeMsg, chars))
 		}
 
+		chars += string(r)
 		res = res*16 + v
 	}
 
 	// May be 6 hex chars
 	r = nextRune(src)
-	chars += string(r)
 	v, haveIt := hexVal(r)
 	if !haveIt {
 		// Not a hex char, unread it and return unicode char
@@ -202,13 +204,13 @@ func unicodeHex(prefix string, src io.RuneScanner) rune {
 
 	// Must have one more hex char
 	r = nextRune(src)
-	chars += string(r)
 	v, haveIt = hexVal(r)
 	if !haveIt {
 		panic(fmt.Errorf(errInvalidUnicodeEscapeMsg, chars))
 	}
 
 	// Have 6 hex chars, return unicode char
+	chars += string(r)
 	res = res*16 + v
 	return rune(res)
 }
@@ -266,17 +268,15 @@ func readString(src io.RuneScanner) LexToken {
 		r, escaped := escapedChar(src)
 		str.WriteRune(r)
 		if (r < ' ') && ((r != '\r') && (r != '\n')) {
+			if r == 0 {
+				panic(errUnexpectedEOF)
+			}
 			panic(fmt.Errorf(errIllegalStringCharMsg, str.String()))
 		}
 
-		switch r {
-		case '\'':
-			if !escaped {
-				// Complete string
-				return LexToken{Str, str.String()}
-			}
-		case 0:
-			panic(errUnexpectedEOF)
+		if (r == '\'') && (!escaped) {
+			// Complete string
+			return LexToken{Str, str.String()}
 		}
 	}
 
@@ -317,11 +317,11 @@ func readHexNumber(src io.RuneScanner) LexToken {
 
 	for {
 		r := nextRune(src)
-		i, haveIt := hexVal(r)
+		_, haveIt := hexVal(r)
 
 		switch {
 		case haveIt:
-			str.WriteRune(rune(i))
+			str.WriteRune(r)
 
 		case r == '_': // separator, ignore it as far as the value goes
 			str.WriteRune(r)
@@ -364,42 +364,85 @@ func readDecimalNumber(firstDigit rune, src io.RuneScanner) LexToken {
 }
 
 // Helper function to read a float number
-// We started as a decimal number, then we hit a ., e, or E
+// We started as a decimal number, then we just read  a ., e, or E
 func readFloatNumber(str *strings.Builder, r rune, src io.RuneScanner) LexToken {
 	var (
-		isFractional = r == '.' // true for fractional, false for exponent
-		lastChar     = r
+		// 0: after ., before first digit
+		// 1: digits after .
+		// 2: after e, before first exponent digit
+		// 3: after first exponent digit
+		mode = 0
 	)
 
+	if r != '.' {
+		mode = 2 // Only other chars are e and E
+	}
+
 	for {
-		r := nextRune(src)
+		r = nextRune(src)
 
 		switch {
 		case (r >= '0') && (r <= '9'):
 			str.WriteRune(r)
-			lastChar = r
+
+			switch mode {
+			case 0:
+				// first digit after .
+				mode = 1
+			case 2:
+				// first digit after e
+				mode = 3
+			}
 
 		case (r == 'e') || (r == 'E'):
-			if !isFractional {
-				// Already read exponent char before
+			switch mode {
+			case 0:
+				// After ., we need a digit, not an e
+				str.WriteRune(r)
+				panic(fmt.Errorf(errIncompleteFloatMsg, str.String()))
+
+			case 1:
+				// Already read digits after ., switching to exponent
+				str.WriteRune(r)
+				mode = 2
+
+			case 2:
+				// After an e, we need a digit, not another e
+				panic(fmt.Errorf(errIncompleteFloatMsg, str.String()))
+
+			default:
+				// After e and digits, first char of next token
 				src.UnreadRune()
 				return LexToken{FloatNumber, str.String()}
 			}
 
-			// enter exponent mode
-			str.WriteRune(r)
-			isFractional = false
-			lastChar = r
-
 		default:
-			// If last char is a ., e, or E then we have an incomplete float
-			if (lastChar == '.') || (lastChar == 'e') || (lastChar == 'E') {
-				panic(fmt.Errorf(errIncompleteFloatMsg, str))
-			}
+			// Not a float char
+			switch mode {
+			case 0:
+				// After ., we need a digit
+				if r != 0 {
+					str.WriteRune(r)
+				}
+				panic(fmt.Errorf(errIncompleteFloatMsg, str.String()))
 
-			// Otherwise, we read the next char after a float string
-			src.UnreadRune()
-			return LexToken{FloatNumber, str.String()}
+			case 1:
+				// After . and digits, first char of next token
+				src.UnreadRune()
+				return LexToken{FloatNumber, str.String()}
+
+			case 2:
+				// After e, we need a digit
+				if r != 0 {
+					str.WriteRune(r)
+				}
+				panic(fmt.Errorf(errIncompleteFloatMsg, str.String()))
+
+			default:
+				// After e and digits, first char of next token
+				src.UnreadRune()
+				return LexToken{FloatNumber, str.String()}
+			}
 		}
 	}
 }
@@ -441,7 +484,7 @@ func Lex(src io.RuneScanner) LexToken {
 			str.WriteRune(r)
 			_, haveIt := hexVal(r)
 			if !haveIt {
-				panic(fmt.Errorf(errInvalidColourMsg, str))
+				panic(fmt.Errorf(errInvalidColourMsg, str.String()))
 			}
 		}
 		return LexToken{Colour, str.String()}
@@ -547,7 +590,10 @@ func Lex(src io.RuneScanner) LexToken {
 			return readHexNumber(src)
 
 		case (r >= '0') && (r <= '9'): // decimal with leading 0
-			return readDecimalNumber(r, src)
+			// Unread char after leading 0
+			src.UnreadRune()
+			// Pass leading 0 as prefix
+			return readDecimalNumber('0', src)
 		}
 
 	case (r >= '1') && (r <= '9'):
