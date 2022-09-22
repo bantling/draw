@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 
 .PHONY: all
 all: mod compile lint format test
@@ -16,14 +17,13 @@ lint:
 
 .PHONY: format
 format:
-	for dir in $$(go list -f '{{.Dir}}' ./...); do \
-		(cd $$dir && gofmt -s -w $$(go list -f '{{.GoFiles}} {{.TestGoFiles}}' | tr -d '[]')); \
-	done
+	for pkg in `go list -f '{{.Dir}}' ./...`; do gofmt -s -w $${pkg}; done
 
 .PHONY: test
 test:
-	[ -n "$(run)" ] && r="-run $(run)"; \
-	go test -coverprofile=coverage.html -v ./... $$r
+	testOpt="-count=$${count:-1}"; \
+	[ -z "$(run)" ] || testOpt="$$testOpt -run $(run)"; \
+	go test -coverprofile=coverage.html -v $$testOpt ./...
 
 .PHONY: coverage
 coverage:
